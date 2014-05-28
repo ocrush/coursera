@@ -1,0 +1,199 @@
+## Impact Of Severe Weather Events on Public Health and Economy
+
+## Synopsis
+
+In this report we try to understand the impact of severe weather events on public health and economy. Many severe events can 
+result in fatalities, and property damage, and preventing such outcomes to the extent possible is a key concern.  To explore 
+the impact, the Storm Data available from the U.S. National Oceanic and Atmospheric Administration's (NOAA) was used for this 
+report.  From these data, it was determined that the top five severe event for public health in terms of fatalities and injuries 
+across U.S are tornadoes,excessive heat, flash flood, heat, and lighting.  In terms of impact on the economy, floods do most 
+property damage and drought has the most impact on crop damage.  Overall, Floods, hurricane/typhoons, and tronadoes are the three 
+most costly weather events.
+
+## Loading and Processing the Raw Data
+### Reading in the Data
+The raw data is read in from file included in the repdata-data-StormData.csv.bz2 file provided by the project 2 assignment.  The 
+data is comma delimited.  The raw data is large and reading in all data is time consuming. Only the required data is read.  This is 
+done by using the colClasses of read.csv.  There are 37 columns and setting the required columns to NA tells R to use the default 
+method for reading the column.
+```{r}
+cols = rep("NULL",37)
+cols[c(8,23,24,25,26,27,28)]=NA
+data <- read.csv("repdata-data-StormData.csv",colClasses=cols)
+```
+After reading in the data we check the first few rows.
+```{r}
+head(data[1:5,])
+```
+### Data Processing 
+In this step, we try to get our data ready for analyses. The two questions we are trying to answer are which types of events 
+(as indicated in the EVTYPE variable) are most harmful with respect to population health? Across the United States, which types 
+of events have the greatest economic consequences?  
+
+To answer the first, we sum up the fatalities and injuries according to event type. Create a common data frame with both fatalities
+and injuries.  Sort the common data first by fatalities and then by injuries.  The reason for doing so is to give fatalities more 
+importance over injuries.  To get an overall population impact, we create a new column "total" which adds both fatalities and 
+injuries.    
+```{r} 
+fatPerEvent <- aggregate(FATALITIES ~ EVTYPE,data=data,sum)
+injPerEvent <- aggregate(INJURIES ~ EVTYPE,data=data,sum)
+popImpact <- merge(fatPerEvent,injPerEvent,by="EVTYPE")
+popImpact$total <- popImpact$FATALITIES + popImpact$INJURIES
+popImpact <- popImpact[with(popImpact,
+                            order(FATALITIES,INJURIES,
+                            decreasing=TRUE)),]
+injPerEvent <- injPerEvent[with(injPerEvent,
+                                order(INJURIES,
+                                      decreasing=TRUE)),]
+```
+Across the United States, which types of events have the greatest economic consequences?
+To prepare the data for this analyses, a subset of the data is created where the 'PROPDMGEXP' and 'CROPDMGEXP' were equal to 
+"K","M","B","m","k".  These values are then mapped to dollar amounts where K/k=1e3, M/m=1e6, B=1e9 and a new column is created
+with these values.  The cost for each event is figured out by mutiplying the newly created column with the actual damage. 
+After this step, cost is summed up for each event and sorted from highest to lowest.  To figure out the overall impact on the 
+economy, the property damage and crop damage data is merged together and a new column "total" is created to represent the cost of 
+both property damage and crop damage.
+```{r}
+# property damage
+propDamage <- subset(data,PROPDMGEXP %in% c("K","M","B","m","k"))
+cropDamage <- subset(data,CROPDMGEXP %in% c("K","M","B","m","k"))
+
+mapDollar <- data.frame(exp=factor(c("K","M","B","m","k")),
+                        value=c(1e3,1e6,1e9,1e6,1e3))
+propDamage$dollarCost <- mapDollar$value[
+                          match(propDamage$PROPDMGEXP,
+                                mapDollar$exp)]
+
+propDamage$dollarCost <- propDamage$dollarCost * propDamage$PROPDMG
+
+propDamagePerType <- aggregate(dollarCost ~ EVTYPE,
+                               data=propDamage,sum)
+propDamagePerType <- propDamagePerType[with(propDamagePerType,
+                                            order(dollarCost,
+                                                  decreasing=TRUE)
+                                            ),
+                                       ]
+#crop damage cost
+cropDamage$dollarCost <- mapDollar$value[
+  match(cropDamage$CROPDMGEXP,
+        mapDollar$exp)]
+
+cropDamage$dollarCost <- cropDamage$dollarCost * cropDamage$CROPDMG
+
+cropDamagePerType <- aggregate(dollarCost ~ EVTYPE,
+                               data=cropDamage,sum)
+cropDamagePerType <- cropDamagePerType[with(cropDamagePerType,
+                                            order(dollarCost,
+                                                  decreasing=TRUE)
+                                            
+                                            ),
+                                      ]
+economyImpact <- merge(propDamagePerType,
+                       cropDamagePerType,
+                       by="EVTYPE",
+                       all=TRUE)
+economyImpact$total <- economyImpact$dollarCost.x + 
+                        economyImpact$dollarCost.y
+economyImpact <- economyImpact[with(economyImpact,
+                       order(total,
+                             decreasing=TRUE)
+                       
+                      ),
+                      ]
+```
+
+## Results
+### Poplulation Impact
+
+We quickly look at the top 5 events that caused the most fatalities and injuries.
+```{r}
+head(popImpact[1:5,],)
+```
+Next, we visualize the data according to fatalities, injuries, and overall impact.  For this, ggplot2 package was used to setup the
+charts and gridExtra package was used to lay them next to each other.  Here, only the top 10 weather events are plotted to get a 
+feel for the most impactful events.
+```{r}
+require(ggplot2)
+p <- ggplot(popImpact[1:10,],
+            aes(x=EVTYPE,y=FATALITIES,fill=EVTYPE),height=580)
+p <- p + geom_bar(stat="identity",position="dodge",colour="black")+
+  guides(fill=FALSE) +
+  xlab("Event Type") + 
+  ylab("Number Of Fatalities") +
+  ggtitle("Top 10 Events for Fatalities")  +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+p2 <- ggplot(injPerEvent[1:10,],
+             aes(x=EVTYPE,y=INJURIES,fill=EVTYPE),
+             height=580)
+p2 <- p2 + geom_bar(stat="identity",position="dodge",colour="black")+
+  guides(fill=FALSE) +
+  xlab("Event Type") + 
+  ylab("Number Of Injuries") +
+  ggtitle("Top 10 Events for Injuries")  +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+p3 <- ggplot(popImpact[1:10,],
+             aes(x=EVTYPE,y=total,fill=EVTYPE),
+             height=580)
+p3 <- p3 + geom_bar(stat="identity",position="dodge",colour="black")+
+  guides(fill=FALSE) +
+  xlab("Event Type") + 
+  ylab("total impact") +
+  ggtitle("Top 10 Events for overall impact")  +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+require(gridExtra)
+grid.arrange(p,p2,p3,ncol=2)
+```
+After visualizing the data, we can clearly see that the tornadoes have the most population impact.
+
+### Economy Impact
+We quickly look at the impact of top 5 events on property damage, crop damage, and overall economy.
+```{r}
+head(propDamagePerType[1:5,],)
+head(cropDamagePerType[1:5,],)
+head(economyImpact[1:5,],)
+```
+Next, we visualize the data according to dollar amount per event. For this, ggplot2 package was used to setup the
+charts and gridExtra package was used to lay them next to each other.  Here, only the top 10 weather events are plotted to get a 
+feel for the most impactful events.
+
+```{r}
+# visualize - plot data
+ep <- ggplot(propDamagePerType[1:10,],
+            aes(x=EVTYPE,y=dollarCost,fill=EVTYPE),height=580)
+ep <- ep + geom_bar(stat="identity",position="dodge",colour="black")+
+  guides(fill=FALSE) +
+  xlab("Event Type") + 
+  ylab("property damage($)") +
+  ggtitle("Prop Damage(Top 10)")  +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+ep2 <- ggplot(cropDamagePerType[1:10,],
+             aes(x=EVTYPE,y=dollarCost,fill=EVTYPE),
+             height=580)
+ep2 <- ep2 + geom_bar(stat="identity",position="dodge",colour="black")+
+  guides(fill=FALSE) +
+  xlab("Event Type") + 
+  ylab("crop damage($)") +
+  ggtitle("Crop Damage (Top Ten)")  +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+ep3 <- ggplot(economyImpact[1:10,],
+             aes(x=EVTYPE,y=total,fill=EVTYPE),
+             height=580)
+ep3 <- ep3 + geom_bar(stat="identity",position="dodge",colour="black")+
+  guides(fill=FALSE) +
+  xlab("Event Type") + 
+  ylab("total impact($)") +
+  ggtitle("Economy Impact (Top 10) ")  +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+require(gridExtra)
+grid.arrange(ep,ep2,ep3,ncol=2)
+```
+From the charts we can see that the floods cause the most property damage, drought the most crop damage.  Floods, Huricane/Typhoon,
+and tornadoes are the top three when it comes to impacting the overall economy.
+
+
+
+
